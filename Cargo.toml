@@ -1,0 +1,19 @@
+[package]
+name = "viga"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+garust = { path = "../garust" }
+nalgebra = "0.33"
+rand = "0.8"
+ort = { version = "2.0.0-rc.12", features = ["ndarray"] }
+image = "0.25"
+ndarray = "0.17"
+
+[dev-dependencies]
+criterion = "0.5"
+
+[[bench]]
+name = "event_benchmark"
+harness = false
