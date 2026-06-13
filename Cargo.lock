@@ -541,6 +541,7 @@ version = "0.1.0"
 dependencies = [
  "garust-core",
  "garust-geo",
+ "garust-physics",
 ]
 
 [[package]]
@@ -552,6 +553,14 @@ name = "garust-geo"
 version = "0.1.0"
 dependencies = [
  "garust-core",
+]
+
+[[package]]
+name = "garust-physics"
+version = "0.1.0"
+dependencies = [
+ "garust-core",
+ "garust-geo",
 ]
 
 [[package]]
@@ -1827,6 +1836,8 @@ dependencies = [
  "ndarray",
  "ort",
  "rand 0.8.6",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

@@ -1,4 +1,6 @@
 use garust::Pga3;
+use garust::pga::{Line, Plane, Point};
+use garust::Motor;
 use crate::perception::BoundingBox;
 
 #[derive(Clone, Debug)]
@@ -22,13 +24,18 @@ impl Default for CameraConfig {
 pub struct TrackedObject {
     pub id: usize,
     pub bounding_box: BoundingBox,
-    pub ray: Pga3, // The Pga3 line extending from the camera to the object
+    pub ray: Pga3, // Kept for backwards compatibility
+    pub pga_line: Line<f64>,
+    pub pga_point: Point<f64>, // The exact 3D location of the person
+    pub velocity: Option<Motor<f64>>, // The movement from previous frame
     pub is_person: bool,
 }
 
 pub struct SpatialTracker {
     pub tracked_objects: Vec<TrackedObject>,
     pub camera: CameraConfig,
+    pub ground_plane: Plane<f64>,
+    next_id: usize,
 }
 
 impl SpatialTracker {
@@ -36,41 +43,73 @@ impl SpatialTracker {
         Self {
             tracked_objects: Vec::new(),
             camera,
+            // Assuming camera is 2 meters above ground, and Y is down.
+            // Ground plane is y - 2.0 = 0 -> a=0, b=1, c=0, d=-2.0
+            ground_plane: Plane::new(0.0, 1.0, 0.0, -2.0),
+            next_id: 0,
         }
     }
 
     pub fn update_tracking(&mut self, detections: Vec<BoundingBox>) {
-        self.tracked_objects.clear();
+        let mut new_tracked_objects = Vec::new();
+        let camera_origin = Point::new(0.0, 0.0, 0.0);
         
-        // Pinhole camera origin in 3D: (0, 0, 0)
-        let camera_origin = Pga3::point(0.0, 0.0, 0.0);
-        
-        for (i, det) in detections.into_iter().enumerate() {
-            // Find center of bounding box in pixel coordinates
+        for det in detections {
             let px = det.x as f64 + det.width as f64 / 2.0;
             let py = det.y as f64 + det.height as f64 / 2.0;
             
-            // Map pixel coordinates to normalized device coordinates (3D vector from camera)
-            // Assuming Z is forward, X is right, Y is down
             let nx = (px - self.camera.cx) / self.camera.focal_length;
             let ny = (py - self.camera.cy) / self.camera.focal_length;
             let nz = 1.0; 
             
-            // Create a Pga3 point on the image plane at Z=1
-            let image_plane_point = Pga3::point(nx, ny, nz);
+            let image_plane_point = Point::new(nx, ny, nz);
             
             // The ray is the geometric join of the camera origin and the image plane point
-            let ray = camera_origin.line_through(&image_plane_point);
+            let pga_line = camera_origin.join(&image_plane_point);
             
-            // Real YOLOv8 has person class = 0
+            // Extract the exact 3D point by meeting the line with the ground plane
+            let pga_point = pga_line.meet(&self.ground_plane);
+            
             let is_person = det.class_id == 0;
             
-            self.tracked_objects.push(TrackedObject {
-                id: i,
+            // Simple temporal ID matching
+            let mut matched_id = self.next_id;
+            let mut best_motor: Option<Motor<f64>> = None;
+            let mut closest_dist = f64::MAX;
+
+            for old_obj in &self.tracked_objects {
+                // Find distance using euclidean coordinates
+                let (x1, y1, z1) = old_obj.pga_point.to_euclidean();
+                let (x2, y2, z2) = pga_point.to_euclidean();
+                let dist = ((x2 - x1).powi(2) + (y2 - y1).powi(2) + (z2 - z1).powi(2)).sqrt();
+                
+                // If it's the same object (less than 2 meters movement)
+                if dist < 2.0 && dist < closest_dist {
+                    closest_dist = dist;
+                    matched_id = old_obj.id;
+                    
+                    // Construct a Motor that translates from old_point to new_point
+                    // Motor is ratio of two points or lines. For pure translation between points, 
+                    // it is 1 + 0.5 * (new_point - old_point) * e0, or we can use Motor::translator
+                    best_motor = Some(Motor::translator(x2 - x1, y2 - y1, z2 - z1));
+                }
+            }
+
+            if matched_id == self.next_id {
+                self.next_id += 1;
+            }
+            
+            new_tracked_objects.push(TrackedObject {
+                id: matched_id,
                 bounding_box: det,
-                ray,
+                ray: pga_line.multivector(),
+                pga_line,
+                pga_point,
+                velocity: best_motor,
                 is_person,
             });
         }
+        
+        self.tracked_objects = new_tracked_objects;
     }
 }

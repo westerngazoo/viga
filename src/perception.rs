@@ -4,8 +4,9 @@ use ndarray::{Array, IxDyn};
 use ort::session::builder::GraphOptimizationLevel;
 use ort::session::Session;
 use ort::value::Tensor;
+use serde::Serialize;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize)]
 pub struct BoundingBox {
     pub x: f32,
     pub y: f32,
